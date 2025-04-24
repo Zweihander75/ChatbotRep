@@ -1,4 +1,3 @@
 langchain
 protobuf
-Quartz
 streamlit
