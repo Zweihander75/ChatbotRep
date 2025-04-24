@@ -1,4 +1,5 @@
 langchain
 protobuf==3.20.3
 google-generativeai>=0.3.0
+distutils
 streamlit
