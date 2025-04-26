@@ -3,6 +3,34 @@ import sqlite3
 from sqlite3 import Error
 import google.generativeai as genai
 from langchain.sql_database import SQLDatabase
+import pandas as pd
+import os
+
+# Función para convertir un archivo Excel a SQLite
+def excel_to_sqlite(excel_file, output_dir=os.path.abspath(__file__)):
+    try:
+
+        # Crear el directorio para guardar las bases de datos si no existe
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # Generar el nombre del archivo SQLite basado en el nombre del archivo Excel
+        excel_filename = os.path.splitext(excel_file.name)[0]  # Obtener el nombre sin extensión
+        db_file = os.path.join(output_dir, f"{excel_filename}.sqlite")
+
+        # Leer el archivo Excel
+        df = pd.read_excel(excel_file)
+        
+        # Conectar a la base de datos SQLite
+        conn = sqlite3.connect(db_file)
+        
+        # Guardar los datos en una tabla llamada "imported_data"
+        df.to_sql("imported_data", conn, if_exists="replace", index=False)
+        
+        conn.close()
+        return True, "Archivo Excel convertido y guardado en la base de datos SQLite exitosamente.", db_file
+    except Exception as e:
+        return False, f"Error al convertir el archivo Excel: {e}", None
 
 # Configuración inicial
 st.set_page_config(page_title="Chatbot SQLite con Gemini", page_icon="🤖")
@@ -74,10 +102,42 @@ def main():
     st.title("🤖 Chatbot con Base de Datos SQLite")
     st.write("Este chatbot responde preguntas sobre la base de datos en lenguaje natural.")
 
-    # Conexión a la base de datos
-    db_file = "lista de precios jd.sqlite"  # Puedes hacer esto configurable si lo necesitas
-    conn = create_connection(db_file)
+    # Directorio donde se almacenan las bases de datos
+    db_dir = os.path.dirname(os.path.abspath(__file__))
+    if not os.path.exists(db_dir):
+        os.makedirs(db_dir)
 
+    # Sección para cargar un archivo Excel y convertirlo a SQLite
+    st.subheader("📂 Convertir archivo Excel a SQLite")
+    uploaded_file = st.file_uploader("Sube un archivo Excel para convertirlo a SQLite", type=["xlsx"])
+    
+    if uploaded_file:
+        success, message, db_file = excel_to_sqlite(uploaded_file, db_dir)
+        if success:
+            st.success(message)
+        else:
+            st.error(message)        
+
+    # Listar las bases de datos disponibles
+    db_files = [f for f in os.listdir(db_dir) if f.endswith((".sqlite", ".db"))]
+
+    if not db_files:
+        st.warning("No se encontraron bases de datos en la carpeta. Por favor, sube un archivo Excel para crear una.")
+        uploaded_file = st.file_uploader("Sube un archivo Excel para convertirlo a SQLite", type=["xlsx"])
+        if uploaded_file:
+            success, message, db_file = excel_to_sqlite(uploaded_file, db_dir)
+            if success:
+                st.success(message)
+                db_files = [os.path.basename(db_file)]  # Actualizar la lista de bases de datos
+            else:
+                st.error(message)
+    else:
+        # Menú desplegable para seleccionar la base de datos
+        selected_db = st.selectbox("Selecciona una base de datos:", db_files)
+        db_file = os.path.join(db_dir, selected_db)
+
+        # Conectar a la base de datos seleccionada
+        conn = create_connection(db_file)
     if conn:
         st.success("✅ Conexión exitosa a la base de datos.")
         
@@ -110,64 +170,48 @@ def main():
                 1. Devuelve SOLO el código SQL, sin explicaciones
                 2. Usa comillas dobles para identificadores si es necesario
                 3. Asegúrate de incluir el nombre del producto y su precio en el resultado
-                4. Usa funciones compatibles con SQLite (por ejemplo, usa MAX para obtener el valor máximo en una columna)
-                5. 
+                4. Usa funciones compatibles con SQLite
+                5. Si la pregunta es sobre el producto más caro o mas barato, devuelve solo el producto que tiene ese precio, junto con sus detalles.
                 6. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder'
                 7. Si la pregunta contiene lo que al principo parecería una palabra aleatoria (ejemplo: bujia) utiliza esa palabra como un filtro para la consulta SQL
                 8. si la pregunta contiene el nombre de un producto compuesto (ejemplo: "bujia de iridio") separa las palabras por separado como filtro
+                9. Si la pregunta no es lo suficientemente específica, los datos ingresados para obtener todos los resultados similares
                 """
                 
                 sql_query = ask_gemini(sql_prompt).strip().replace("```sql", "").replace("```", "")
                 
-                # Fix misuse of MAX in the generated SQL query
-                if "MAX" in sql_query:
-                    for table in schema:
-                        table_name = table['table']
-                        sql_query = sql_query.replace("MAX(", f"(SELECT MAX(").replace(")", f") FROM \"{table_name}\")")
-                if sql_query and "no se puede responder" not in sql_query.lower():
-                    st.code(f"Consulta SQL generada:\n{sql_query}")
-                    # Si no se encuentran resultados exactos, buscar coincidencias similares
-                    if not results and "WHERE" in sql_query:
-                        similar_prompt = f"""
-                        Basado en el esquema de la base de datos:
-                        {schema}
-                        
-                        Genera una consulta SQL para encontrar registros similares a la pregunta:
-                        '{user_question}'
-                        
-                        Reglas:
-                        1. Usa LIKE con comodines (%) para buscar coincidencias parciales
-                        2. Devuelve SOLO el código SQL, sin explicaciones
-                        """
-                        similar_query = ask_gemini(similar_prompt).strip().replace("```sql", "").replace("```", "")
-                        
-                        _, similar_results = execute_query(conn, similar_query)
-                        if similar_results:
-                            st.warning("No se encontraron resultados exactos. Mostrando coincidencias similares:")
-                            st.table(similar_results)
-                        else:
-                            st.warning("No se encontraron coincidencias similares.")
-                    _, results = execute_query(conn, sql_query)
-                    _, results = execute_query(conn, sql_query)
-                    if results:
-                        # Mostrar resultados en un desplegable
-                        with st.expander("📋 Ver resultados"):
-                            st.table(results)
-                        
-                        # Generar explicación en lenguaje natural
-                        explanation_prompt = f"""
-                        Explica estos resultados de base de datos en lenguaje natural:
-                        Pregunta: {user_question}
-                        Resultados: {results}
-                        
-                        La explicación debe ser clara y responder a la pregunta.
-                        """
-                        explanation = ask_gemini(explanation_prompt)
-                        st.write("💡 Explicación:", explanation)
+
+                    
+                # Ejecutar la consulta
+                columns, results = execute_query(conn, sql_query)
+                
+                if results:
+                    # Convertir los resultados en un DataFrame para mostrar los nombres de las columnas
+                    if columns:
+                        df = pd.DataFrame(results, columns=columns)
                     else:
-                        st.warning("No se encontraron resultados para esta consulta.")
+                        df = pd.DataFrame(results)
+
+                    # Mostrar la consulta generada
+                    with st.expander("📝 Consulta generada (SQL)"):
+                        st.code(sql_query, language="sql")
+
+                    # Mostrar resultados en un desplegable
+                    with st.expander("📋 Ver resultados"):
+                        st.table(df)
+
+                    # Generar explicación en lenguaje natural
+                    explanation_prompt = f"""
+                    Explica estos resultados de base de datos en lenguaje natural:
+                    Pregunta: {user_question}
+                    Resultados: {results}
+                    
+                    La explicación debe ser clara y responder a la pregunta.
+                    """
+                    explanation = ask_gemini(explanation_prompt)
+                    st.write("💡 Explicación:", explanation)
                 else:
-                    st.warning("No pude generar una consulta adecuada para esta pregunta.")
+                    st.warning("No se encontraron resultados para esta consulta.")
 
         # Cerrar conexión
         conn.close()
