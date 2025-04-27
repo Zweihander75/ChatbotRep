@@ -174,13 +174,31 @@ def main():
                 5. Si la pregunta es sobre el producto más caro o mas barato, devuelve solo el producto que tiene ese precio, junto con sus detalles.
                 6. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder'
                 7. Si la pregunta contiene lo que al principo parecería una palabra aleatoria (ejemplo: bujia) utiliza esa palabra como un filtro para la consulta SQL
-                8. si la pregunta contiene el nombre de un producto compuesto (ejemplo: "bujia de iridio") separa las palabras por separado como filtro
-                9. Si la pregunta no es lo suficientemente específica, los datos ingresados para obtener todos los resultados similares
+                8. si la pregunta contiene la siguiente estructura o semejante ("X de Y") la consulta debe buscar registros que contengan "X" y "Y" en sus columnas correspondientes.
+                9. Si la pregunta no es lo suficientemente específica, devuelve preguntas que el usuario podría hacer para obtener información útil.
+                10. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder' y sugiere 3 preguntas relevantes basadas en el esquema de la base de datos.
+                11. si la pregunta tiene palabras en plurar, asegurate de buscar tanto la palabra en plural como en singular.
+                12. si la pregunta contiene años, hay que tener en cuenta que la columna de año de inicio y año de fin se refiere a a todos los años que hay entre el primero el segundo
+                (ejemplo: si preguntan por un año 2005 y en la base de datos aparece como año de inicio 2000 y año final 2010, quiere quecir que si existe en el año 2005).
                 """
                 
                 sql_query = ask_gemini(sql_prompt).strip().replace("```sql", "").replace("```", "")
                 
-
+            if "no se puede responder" in sql_query.lower():
+                # Generar sugerencias de preguntas relevantes
+                suggestion_prompt = f"""
+                Basado en el siguiente esquema de base de datos y la pregunta del usuario:
+                {schema}
+                {user_question}
+                
+                Sugiere 3 preguntas relevantes que un usuario podría hacer sobre esta base de datos (Solo las preguntas sin explicación).
+                """
+                suggestions = ask_gemini(suggestion_prompt).strip()
+                st.warning("La pregunta no es lo suficientemente específica o no está relacionada con la base de datos.")
+                st.write("💡 Sugerencias de preguntas:")
+                st.write(suggestions)
+            else:
+                print()                
                     
                 # Ejecutar la consulta
                 columns, results = execute_query(conn, sql_query)
@@ -211,7 +229,21 @@ def main():
                     explanation = ask_gemini(explanation_prompt)
                     st.write("💡 Explicación:", explanation)
                 else:
-                    st.warning("No se encontraron resultados para esta consulta.")
+                    with st.expander("📝 Consulta generada (SQL)"):
+                        st.code(sql_query, language="sql")
+
+                    explanation_prompt = f"""
+                    No se encontraron resultados para la consulta SQL generada:
+                    Pregunta: {user_question}
+                    Base de datos: {schema}
+                    Consulta: {sql_query}
+                    
+                    Utiliza la pregunta, la base de datos y la consulta para generar un mensaje corto explicando la situación
+                    (que no contenga la consulta ni la base de datos) y si es posible una recomendación posterior.
+                    """ 
+
+                    explanation = ask_gemini(explanation_prompt)
+                    st.write("💡 Explicación:", explanation)
 
         # Cerrar conexión
         conn.close()
