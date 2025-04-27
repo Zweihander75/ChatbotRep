@@ -178,8 +178,7 @@ def main():
                 9. Si la pregunta no es lo suficientemente específica, devuelve preguntas que el usuario podría hacer para obtener información útil.
                 10. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder' y sugiere 3 preguntas relevantes basadas en el esquema de la base de datos.
                 11. si la pregunta tiene palabras en plurar, asegurate de buscar tanto la palabra en plural como en singular.
-                12. si la pregunta contiene años, hay que tener en cuenta que la columna de año de inicio y año de fin se refiere a a todos los años que hay entre el primero el segundo
-                (ejemplo: si preguntan por un año 2005 y en la base de datos aparece como año de inicio 2000 y año final 2010, quiere quecir que si existe en el año 2005).
+                
                 """
                 
                 sql_query = ask_gemini(sql_prompt).strip().replace("```sql", "").replace("```", "")
