@@ -176,8 +176,8 @@ def main():
                 7. Si la pregunta contiene lo que al principo parecería una palabra aleatoria (ejemplo: bujia) utiliza esa palabra como un filtro para la consulta SQL
                 8. si la pregunta contiene la siguiente estructura o semejante ("X de Y") la consulta debe buscar registros que contengan "X" y "Y" en sus columnas correspondientes.
                 9. Si la pregunta no es lo suficientemente específica, devuelve preguntas que el usuario podría hacer para obtener información útil.
-                10. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder' y sugiere 3 preguntas relevantes basadas en el esquema de la base de datos.
-                11. si la pregunta tiene palabras en plurar, asegurate de buscar tanto la palabra en plural como en singular.
+                10. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder'.
+                11. si la pregunta tiene palabras en pluraL, asegurate de buscar tanto la palabra en plural como en singular.
                 
                 """
                 
@@ -190,7 +190,7 @@ def main():
                 {schema}
                 {user_question}
                 
-                Sugiere 3 preguntas relevantes que un usuario podría hacer sobre esta base de datos (Solo las preguntas sin explicación).
+                Sugiere 3 preguntas relevantes que un usuario podría hacer para conseguir lo que quería en su pregunta original (Solo las preguntas sin explicación).
                 """
                 suggestions = ask_gemini(suggestion_prompt).strip()
                 st.warning("La pregunta no es lo suficientemente específica o no está relacionada con la base de datos.")
@@ -213,9 +213,20 @@ def main():
                     with st.expander("📝 Consulta generada (SQL)"):
                         st.code(sql_query, language="sql")
 
-                    # Mostrar resultados en un desplegable
-                    with st.expander("📋 Ver resultados"):
-                        st.table(df)
+                    # Mostrar resultados en una tabla dentro de un expander desplegable
+                    with st.expander("📋 Ver resultados de la consulta"):
+                        st.markdown(
+                            """
+                            <style>
+                            .stTable {
+                                max-width: 90%; /* Ajusta el ancho máximo de la tabla */
+                                margin: 0 auto; /* Centra la tabla */
+                            }
+                            </style>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                        st.dataframe(df, use_container_width=True)
 
                     # Generar explicación en lenguaje natural
                     explanation_prompt = f"""
