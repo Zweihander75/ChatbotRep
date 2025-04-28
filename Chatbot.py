@@ -178,7 +178,7 @@ def main():
                 9. Si la pregunta no es lo suficientemente específica, devuelve preguntas que el usuario podría hacer para obtener información útil.
                 10. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder'.
                 11. si la pregunta tiene palabras en pluraL, asegurate de buscar tanto la palabra en plural como en singular.
-                
+                12. A menos que se especifique lo contrario, muestra toda la fila del producto.
                 """
                 
                 sql_query = ask_gemini(sql_prompt).strip().replace("```sql", "").replace("```", "")
