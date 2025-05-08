@@ -6,7 +6,8 @@ from langchain.sql_database import SQLDatabase
 import pandas as pd
 import os
 
-# Excel a SQLite
+
+# Función para convertir un archivo Excel a SQLite
 def excel_to_sqlite(excel_file, output_dir=os.path.abspath(__file__)):
     try:
 
@@ -14,7 +15,7 @@ def excel_to_sqlite(excel_file, output_dir=os.path.abspath(__file__)):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         
-        # Generar el nombre del archivo SQLite
+        # Generar el nombre del archivo SQLite basado en el nombre del archivo Excel
         excel_filename = os.path.splitext(excel_file.name)[0]  # Obtener el nombre sin extensión
         db_file = os.path.join(output_dir, f"{excel_filename}.sqlite")
 
@@ -24,7 +25,7 @@ def excel_to_sqlite(excel_file, output_dir=os.path.abspath(__file__)):
         # Conectar a la base de datos SQLite
         conn = sqlite3.connect(db_file)
         
-        # Guardar los datos
+        # Guardar los datos en una tabla llamada "imported_data"
         df.to_sql("imported_data", conn, if_exists="replace", index=False)
         
         conn.close()
@@ -32,23 +33,23 @@ def excel_to_sqlite(excel_file, output_dir=os.path.abspath(__file__)):
     except Exception as e:
         return False, f"Error al convertir el archivo Excel: {e}", None
 
-
+# Configuración inicial
 st.set_page_config(page_title="Chatbot SQLite con Gemini", page_icon="🤖")
 
+# Configura tu clave de API de Gemini AI correctamente
+GEMINI_API_KEY = "AIzaSyBV4RlXzi2iRzi-_syqxH8HBfDY2aGgx3E"  # Quita las comillas simples
 
-GEMINI_API_KEY = "AIzaSyBV4RlXzi2iRzi-_syqxH8HBfDY2aGgx3E"  
-
-# Gemini
+# Configura el modelo Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Conexión con LangChain
+# Conexión a la base de datos con LangChain
 try:
     db = SQLDatabase.from_uri("sqlite:///lista de precios jd.sqlite")
 except Exception as e:
     st.error(f"Error al conectar con la base de datos: {e}")
 
-# Conectarse a la base de datos SQLite
+# Función para conectarse directamente a la base de datos SQLite
 def create_connection(db_file):
     conn = None
     try:
@@ -57,11 +58,22 @@ def create_connection(db_file):
         st.error(f"Error al conectar con la base de datos: {e}")
     return conn
 
-# Ejecutar consultas
+# Función para ejecutar consultas en la base de datos
 def execute_query(conn, query):
     try:
         cur = conn.cursor()
-        cur.execute(query)
+        
+        # Dividir las sentencias por punto y coma
+        statements = query.split(";")
+        for statement in statements:
+            if statement.strip():  # Ignorar sentencias vacías
+                cur.execute(statement)
+        
+        # Confirmar cambios si hay sentencias de modificación
+        if any(statement.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for statement in statements):
+            conn.commit()
+        
+        # Si la consulta incluye RETURNING, devolver los resultados
         rows = cur.fetchall()
         columns = [desc[0] for desc in cur.description] if cur.description else []
         return columns, rows
@@ -69,7 +81,7 @@ def execute_query(conn, query):
         st.error(f"Error al ejecutar la consulta: {e}")
         return None, None
 
-
+# Función mejorada para interactuar con Gemini AI
 def ask_gemini(prompt):
     try:
         response = model.generate_content(prompt)
@@ -78,7 +90,7 @@ def ask_gemini(prompt):
         st.error(f"Error al interactuar con Gemini AI: {e}")
         return "Lo siento, no puedo responder en este momento."
 
-# Obtener el esquema de la base de datos
+# Función para obtener el esquema de la base de datos
 def get_schema(conn):
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
@@ -95,17 +107,17 @@ def get_schema(conn):
         })
     return schema
 
-# Interfaz
+# Interfaz de usuario con Streamlit
 def main():
     st.title("🤖 Chatbot con Base de Datos SQLite")
     st.write("Este chatbot responde preguntas sobre la base de datos en lenguaje natural.")
 
-    # Directorio de bases de datos
+    # Directorio donde se almacenan las bases de datos
     db_dir = os.path.dirname(os.path.abspath(__file__))
     if not os.path.exists(db_dir):
         os.makedirs(db_dir)
 
-    # Excel a SQLite
+    # Sección para cargar un archivo Excel y convertirlo a SQLite
     st.subheader("📂 Convertir archivo Excel a SQLite")
     uploaded_file = st.file_uploader("Sube un archivo Excel para convertirlo a SQLite", type=["xlsx"])
     
@@ -116,7 +128,7 @@ def main():
         else:
             st.error(message)        
 
-    # Bases de datos disponibles
+    # Listar las bases de datos disponibles
     db_files = [f for f in os.listdir(db_dir) if f.endswith((".sqlite", ".db"))]
 
     if not db_files:
@@ -126,21 +138,23 @@ def main():
             success, message, db_file = excel_to_sqlite(uploaded_file, db_dir)
             if success:
                 st.success(message)
-                db_files = [os.path.basename(db_file)]  
+                db_files = [os.path.basename(db_file)]  # Actualizar la lista de bases de datos
             else:
                 st.error(message)
     else:
-        # Menú desplegable
+        # Menú desplegable para seleccionar la base de datos
         selected_db = st.selectbox("Selecciona una base de datos:", db_files)
         db_file = os.path.join(db_dir, selected_db)
 
-        
+        # Conectar a la base de datos seleccionada
         conn = create_connection(db_file)
     if conn:
         st.success("✅ Conexión exitosa a la base de datos.")
         
+        # Initialize results to avoid referencing before assignment
         results = None
-    
+        
+        # Obtener esquema para el contexto
         schema = get_schema(conn)
         
         # Mostrar esquema
@@ -160,7 +174,7 @@ def main():
                 Eres un experto en SQLite. Basado en el siguiente esquema de base de datos:
                 {schema}
                 
-                Genera una consulta SQL para responder a: '{user_question}'
+                Genera codigo SQL, ya sea para responder o editar la base de datos deacuerdo a: '{user_question}'
                 
                 Reglas:
                 1. Devuelve SOLO el código SQL, sin explicaciones
@@ -174,13 +188,17 @@ def main():
                 9. Si la pregunta no es lo suficientemente específica, devuelve preguntas que el usuario podría hacer para obtener información útil.
                 10. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder'.
                 11. si la pregunta tiene palabras en pluraL, asegurate de buscar tanto la palabra en plural como en singular.
-                12. A menos que se especifique lo contrario, muestra toda la fila del producto.
+                12. Si el usuario quiere comprar productos, reduce la cantidad de stock en la base de datos según la cantidad solicitada.
+                13. Si el usuario quiere vender productos, reduce la cantidad de stock en la base de datos según la cantidad indicada.
+                14. Si la cantidad solicitada para comprar/vender excede el stock disponible, devuelve "No hay en existencia" como resultado.
+                15. Incluye la cláusula RETURNING para devolver los datos afectados.
+                
                 """
                 
                 sql_query = ask_gemini(sql_prompt).strip().replace("```sql", "").replace("```", "")
                 
             if "no se puede responder" in sql_query.lower():
-                # Generar sugerencias
+                # Generar sugerencias de preguntas relevantes
                 suggestion_prompt = f"""
                 Basado en el siguiente esquema de base de datos y la pregunta del usuario:
                 {schema}
@@ -199,16 +217,20 @@ def main():
                 columns, results = execute_query(conn, sql_query)
                 
                 if results:
-                    if columns:
-                        df = pd.DataFrame(results, columns=columns)
+                    # Convertir los resultados en un DataFrame para mostrar los nombres de las columnas
+                    if isinstance(results, list) and all(isinstance(row, (list, tuple)) for row in results):
+                        if columns:
+                            df = pd.DataFrame(results, columns=columns)
+                        else:
+                            df = pd.DataFrame(results)
                     else:
-                        df = pd.DataFrame(results)
+                        df = pd.DataFrame()  # Crear un DataFrame vacío como fallback
 
                     # Mostrar la consulta generada
                     with st.expander("📝 Consulta generada (SQL)"):
                         st.code(sql_query, language="sql")
 
-                    # Mostrar resultados generados
+                    # Mostrar resultados en una tabla dentro de un expander desplegable
                     with st.expander("📋 Ver resultados de la consulta"):
                         st.markdown(
                             """
@@ -223,7 +245,7 @@ def main():
                         )
                         st.dataframe(df, use_container_width=True)
 
-                    # Explicación en lenguaje natural
+                    # Generar explicación en lenguaje natural
                     explanation_prompt = f"""
                     Explica estos resultados de base de datos en lenguaje natural:
                     Pregunta: {user_question}
@@ -233,6 +255,7 @@ def main():
                     """
                     explanation = ask_gemini(explanation_prompt)
                     st.write("💡 Explicación:", explanation)
+
                 else:
                     with st.expander("📝 Consulta generada (SQL)"):
                         st.code(sql_query, language="sql")
@@ -249,7 +272,9 @@ def main():
 
                     explanation = ask_gemini(explanation_prompt)
                     st.write("💡 Explicación:", explanation)
-                    
+
+
+        # Cerrar conexión
         conn.close()
 
 if __name__ == "__main__":
