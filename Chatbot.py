@@ -65,21 +65,31 @@ def execute_query(conn, query):
         
         # Dividir las sentencias por punto y coma
         statements = query.split(";")
+        rows_affected = 0
+        results = None
+        columns = None
+
         for statement in statements:
             if statement.strip():  # Ignorar sentencias vacías
                 cur.execute(statement)
-        
+                
+                # Si es una consulta de modificación, contar filas afectadas
+                if statement.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")):
+                    rows_affected += cur.rowcount
+                
+                # Si es una consulta SELECT, obtener resultados
+                if statement.strip().upper().startswith("SELECT"):
+                    results = cur.fetchall()
+                    columns = [desc[0] for desc in cur.description] if cur.description else []
+
         # Confirmar cambios si hay sentencias de modificación
-        if any(statement.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for statement in statements):
+        if rows_affected > 0:
             conn.commit()
-        
-        # Si la consulta incluye RETURNING, devolver los resultados
-        rows = cur.fetchall()
-        columns = [desc[0] for desc in cur.description] if cur.description else []
-        return columns, rows
+
+        return columns, results, rows_affected
     except Error as e:
         st.error(f"Error al ejecutar la consulta: {e}")
-        return None, None
+        return None, None, 0
 
 # Función mejorada para interactuar con Gemini AI
 def ask_gemini(prompt):
@@ -167,6 +177,7 @@ def main():
         # Entrada del usuario
         user_question = st.text_input("Haz una pregunta sobre la base de datos (ej: ¿Cuál es el producto más caro?):")
 
+        # Modificar la lógica para manejar modificaciones
         if st.button("Consultar") and user_question:
             with st.spinner("Procesando tu pregunta..."):
                 # Generar consulta SQL
@@ -181,17 +192,17 @@ def main():
                 2. Usa comillas dobles para identificadores si es necesario
                 3. Asegúrate de incluir el nombre del producto y su precio en el resultado
                 4. Usa funciones compatibles con SQLite
-                5. Si la pregunta es sobre el producto más caro o mas barato, devuelve solo el producto que tiene ese precio, junto con sus detalles.
+                5. Si la pregunta esta relacionada con el precio de los productos, devuelve todos los datos del producto.
                 6. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder'
                 7. Si la pregunta contiene lo que al principo parecería una palabra aleatoria (ejemplo: bujia) utiliza esa palabra como un filtro para la consulta SQL
                 8. si la pregunta contiene la siguiente estructura o semejante ("X de Y") la consulta debe buscar registros que contengan "X" y "Y" en sus columnas correspondientes.
                 9. Si la pregunta no es lo suficientemente específica, devuelve preguntas que el usuario podría hacer para obtener información útil.
                 10. Si la pregunta no puede responderse con los datos, devuelve 'No se puede responder'.
-                11. si la pregunta tiene palabras en pluraL, asegurate de buscar tanto la palabra en plural como en singular.
-                12. Si el usuario quiere comprar productos, reduce la cantidad de stock en la base de datos según la cantidad solicitada.
-                13. Si el usuario quiere vender productos, reduce la cantidad de stock en la base de datos según la cantidad indicada.
+                11. si la pregunta tiene palabras en plural, asegurate de buscar tanto la palabra en plural como en singular.
+                12. Si el usuario quiere comprar productos, reduce la cantidad de stock del producto solicitado en la base de datos según la cantidad solicitada.
+                13. Si el usuario quiere vender productos, reduce la cantidad de stock del producto solicitado en la base de datos según la cantidad indicada.
                 14. Si la cantidad solicitada para comprar/vender excede el stock disponible, devuelve "No hay en existencia" como resultado.
-                15. Incluye la cláusula RETURNING para devolver los datos afectados.
+                
                 
                 """
                 
@@ -214,7 +225,10 @@ def main():
                 print()                
                     
                 # Ejecutar la consulta
-                columns, results = execute_query(conn, sql_query)
+                columns, results, rows_affected = execute_query(conn, sql_query)
+
+                if rows_affected > 0:
+                    st.success(f"Consulta ejecutada correctamente. Filas afectadas: {rows_affected}")
                 
                 if results:
                     # Convertir los resultados en un DataFrame para mostrar los nombres de las columnas
@@ -247,11 +261,16 @@ def main():
 
                     # Generar explicación en lenguaje natural
                     explanation_prompt = f"""
-                    Explica estos resultados de base de datos en lenguaje natural:
-                    Pregunta: {user_question}
-                    Resultados: {results}
+                    Basado en la pregunta del usuario y los resultados obtenidos de la consulta SQL:
                     
-                    La explicación debe ser clara y responder a la pregunta.
+                    Pregunta: {user_question}
+                    Consulta: {sql_query}
+                    Resultados: {results}
+                    Filas afectadas: {rows_affected}
+                    
+                    Si el numero de filas afectadas es mayor a 0, significa que la modificación fue exitosa.
+                    Determina si la modificación o consulta solicitada en la pregunta fue realizada correctamente.
+                    La explicación debe ser clara, consisa y responder a la pregunta del usuario.
                     """
                     explanation = ask_gemini(explanation_prompt)
                     st.write("💡 Explicación:", explanation)
@@ -265,7 +284,9 @@ def main():
                     Pregunta: {user_question}
                     Base de datos: {schema}
                     Consulta: {sql_query}
+                    Filas afectadas: {rows_affected}
                     
+                    Si el numero de filas afectadas es mayor a 0, significa que la modificación fue exitosa.
                     Utiliza la pregunta, la base de datos y la consulta para generar un mensaje corto explicando la situación
                     (que no contenga la consulta ni la base de datos) y si es posible una recomendación posterior.
                     """ 
